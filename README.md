@@ -1,6 +1,6 @@
 # Projet ML — Classification binaire (Spambase & Diabetes)
 
-TAF MCE — IMT Atlantique. Groupe : **NOM1, NOM2, NOM3**.
+TAF MCE — IMT Atlantique. Groupe : **BINI Kouassi, KOUASSI Emmanuel, NGUENGOUE WATCHO Ginger**.
 
 ## Contenu
 | Fichier | Rôle |
