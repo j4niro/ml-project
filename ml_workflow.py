@@ -63,31 +63,87 @@ SPAMBASE_COLUMNS: List[str] = (
 # ============================================================================
 def load_spambase(path: str='data/spambase.data') -> pd.DataFrame:
     """Load the UCI Spambase dataset (57 features + binary target ``is_spam``)."""
-    raise NotImplementedError('TODO (personne A)')
-
+    #raise NotImplementedError(' (personne A)')
+    df = pd.read_csv(path, header=None, names=SPAMBASE_COLUMNS)
+    return df
 
 def load_diabetes(path: str='data/diabetes_binary_health_indicators_BRFSS2015.csv') -> pd.DataFrame:
     """Load the Diabetes Health Indicators dataset (21 features + ``Diabetes_binary``)."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
+    df = pd.read_csv(path)
+    return df
 
 
 def split_features_target(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, pd.Series]:
     """Return ``(X, y)`` from a dataframe and the name of its target column."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
+
+    if target not in df.columns:
+        raise ValueError(f"Target column '{target}' not found in dataframe.")
+
+    x = df.drop(columns=[target])
+    y = df[target]
+    return x, y 
 
 
 def describe_dataset(df: pd.DataFrame, target: str) -> pd.Series:
     """Quick summary: size, missing values, duplicates, class balance."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
 
+    if target not in df.columns:
+        raise ValueError(f"Target column '{target}' not found in dataframe.")
+
+    class_counts = df[target].value_counts(dropna=False).to_dict()
+
+    class_proportions = (df[target].value_counts(normalize=True, dropna=False).to_dict())
+
+    summary = pd.Series({
+        "n_rows": len(df),
+        "n_columns": len(df.columns),
+        "n_features": len(df.columns) - 1,
+        "n_missing_values": int(df.isna().sum().sum()),
+        "n_duplicated_rows": int(df.duplicated().sum()),
+        "target": target,
+        "class_counts": class_counts,
+        "class_proportions": class_proportions
+    })
+    return summary
 
 def inject_missing_values(X: pd.DataFrame, frac: float=0.05, seed: int=RANDOM_STATE) -> pd.DataFrame:
     """Randomly (MCAR) replace a fraction of the cells by NaN.
 
 Neither dataset contains missing values; this function lets us test and
 compare imputation strategies in a controlled way."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
 
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError("Input X must be a pandas DataFrame.")
+
+    if not 0 <= frac < 1:
+        raise ValueError("Fraction must be between 0 and 1(prohibited).")
+    
+    X_missing = X.copy()
+
+    n_cells = X_missing.size
+
+    n_missing = int(round(frac * n_cells))
+
+    rng = np.random.default_rng(seed)
+
+    # Création d'un masque de départ : toutes les cellules sont False
+    mask = np.zeros(X.shape, dtype=bool)
+
+    # Mélange des positions possibles et sélection des n_missing premières
+    selected_positions = rng.permutation(n_cells)[:n_missing]
+
+    # On marque uniquement ces positions comme manquantes
+    mask.ravel()[selected_positions] = True
+
+    # Application du masque : True devient NaN
+    X_missing = X_missing.mask(mask)
+
+    return X_missing
+    
 
 def build_pipeline(model: BaseEstimator, imputer_strategy: str='median', scale: bool=True, selector: Optional[str]=None, k: int=10, pca_components: Optional[float | int]=None, random_state: int=RANDOM_STATE) -> Pipeline:
     """Build ``imputer -> scaler -> [feature selection] -> [PCA] -> model``.
@@ -100,18 +156,88 @@ selector : None, 'anova', 'mutual_info', 'l1' (Lasso-like logistic
     regression) or 'rf' (random-forest importances). Keeps the ``k`` best.
 pca_components : None (no PCA), an int (number of axes) or a float in
     (0, 1) (fraction of explained variance to keep)."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
+
+    if imputer_strategy not in ['mean', 'median']:
+        raise ValueError("imputer_strategy must be 'mean' or 'median'.")
+
+    if selector not in (None, "anova", "mutual_info", "l1", "rf"):
+        raise ValueError("selector must be None, 'anova', 'mutual_info', 'l1', or 'rf'.")
+
+    if k < 1:
+        raise ValueError("k must be a greater or equal to 1.")
+
+    steps = []
+
+    steps.append(('imputer', SimpleImputer(strategy=imputer_strategy)))
+
+    if scale: 
+        steps.append(('scaler', StandardScaler()))
+
+    else:
+        steps.append(('scaler', 'passthrough'))
+
+    if selector is not None:
+        steps.append(('selector', make_selector(selector, k=k, random_state=random_state)))
+
+    else:
+        steps.append(('selector', 'passthrough'))
+
+    if pca_components is not None:
+
+        if isinstance(pca_components, float):
+            if not (0 < pca_components <= 1):
+                raise ValueError("If pca_components is a float, it must be in ]0, 1).")
+
+        elif isinstance(pca_components, int):
+            if pca_components < 1:
+                raise ValueError("If pca_components is an int, it must be greater or equal to 1.")
+
+        else:
+            raise TypeError("pca_components must be None, a float in (0, 1), or an int >= 1.")
+
+        steps.append(('pca', PCA(n_components=pca_components, random_state=random_state)))
+
+    else:
+        steps.append(('pca', 'passthrough'))
+
+    steps.append(('model', model))
+
+    return Pipeline(steps)
+
 
 
 def split_data(X, y, test_size: float=0.2, seed: int=RANDOM_STATE):
     """Stratified train/test split (keeps the class proportions in both parts)."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
 
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, stratify=y, random_state=seed)
+
+    return X_train, X_test, y_train, y_test
 
 def subsample(X, y, n: int, seed: int=RANDOM_STATE):
     """Stratified subsample of ``n`` rows (to speed up tuning on large data)."""
-    raise NotImplementedError('TODO (personne A)')
+    #raise NotImplementedError(' (personne A)')
 
+    if not isinstance(n, (int, np.integer)) or isinstance(n, bool):
+        raise TypeError("n must be an integer.")
+
+    if n < 1:
+        raise ValueError("n must be positive.")
+
+    if n > len(X):
+        raise ValueError("n can't be greater than the number of rows in X.")
+
+    if len(X) != len(y):
+        raise ValueError("X and y must have the same number of rows.")
+
+    if n == len(X):
+        return X.copy(), y.copy()
+
+    X_sub, _, y_sub, _ = train_test_split(X, y, train_size=n, stratify=y, random_state=seed)
+
+    return X_sub, y_sub
+    
 
 
 # ============================================================================
@@ -199,3 +325,4 @@ def plot_pca_variance(X_train, figsize=(6, 4)):
 def plot_feature_scores(scores: pd.Series, top: int=15, title: str='Feature scores'):
     """Horizontal bar plot of the ``top`` best feature scores."""
     raise NotImplementedError('TODO (personne C)')
+
