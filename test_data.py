@@ -153,3 +153,56 @@ def test_build_pipeline():
         "pca",
         "model"
     ]
+    
+@pytest.mark.parametrize("method", ["anova", "mutual_info", "l1", "rf"])
+def test_selector_keeps_k_features(data, method):
+    X, y = data
+    pipe = ml.build_pipeline(LogisticRegression(), selector=method, k=5).fit(X, y)
+    assert len(ml.selected_features(pipe, X.columns)) == 5
+
+
+def test_make_selector_unknown_method_raises():
+    with pytest.raises(ValueError):
+        ml.make_selector("unknown")
+
+
+def test_selected_features_without_selector_returns_all(data):
+    X, y = data
+    pipe = ml.build_pipeline(LogisticRegression()).fit(X, y)
+    assert ml.selected_features(pipe, X.columns) == list(X.columns)
+
+
+def test_get_models_keys_and_svm_option():
+    without_svm = ml.get_models(include_svm=False)
+    with_svm = ml.get_models(include_svm=True)
+    assert {"lr", "rf", "hgb"} <= set(without_svm)
+    assert "SVM-RBF" not in without_svm
+    assert "SVM-RBF" in with_svm
+    assert all(hasattr(m, "fit") for m in with_svm.values())
+
+
+def test_get_models_class_weight_is_applied():
+    models = ml.get_models(class_weight="balanced")
+    assert all(m.class_weight == "balanced" for m in models.values())
+
+
+@pytest.mark.parametrize("method", ["anova", "mutual_info", "l1", "rf"])
+def test_feature_scores_sorted_and_complete(data, method):
+    X, y = data
+    scores = ml.feature_scores(X, y, method)
+    assert set(scores.index) == set(X.columns)
+    assert list(scores.values) == sorted(scores.values, reverse=True)
+
+
+def test_feature_scores_handles_missing_values(data):
+    X, y = data
+    X_nan = ml.inject_missing_values(X, frac=0.1)
+    scores = ml.feature_scores(X_nan, y, "anova")
+    assert not scores.isna().any()
+
+
+def test_tune_model_returns_best_params(data):
+    X, y = data
+    pipe = ml.build_pipeline(LogisticRegression(max_iter=1000))
+    gs = ml.tune_model(pipe, {"model__C": [0.1, 1.0]}, X, y, n_samples=10_000)
+    assert gs.best_params_["model__C"] in (0.1, 1.0)

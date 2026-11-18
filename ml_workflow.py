@@ -8,13 +8,14 @@ sur le TRAIN uniquement."""
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Dict, Iterable, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.decomposition import PCA
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import  HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.feature_selection import (
     SelectFromModel,
     SelectKBest,
@@ -63,20 +64,19 @@ SPAMBASE_COLUMNS: List[str] = (
 # ============================================================================
 def load_spambase(path: str='data/spambase.data') -> pd.DataFrame:
     """Load the UCI Spambase dataset (57 features + binary target ``is_spam``)."""
-    #raise NotImplementedError(' (personne A)')
+
     df = pd.read_csv(path, header=None, names=SPAMBASE_COLUMNS)
     return df
 
 def load_diabetes(path: str='data/diabetes_binary_health_indicators_BRFSS2015.csv') -> pd.DataFrame:
     """Load the Diabetes Health Indicators dataset (21 features + ``Diabetes_binary``)."""
-    #raise NotImplementedError(' (personne A)')
+
     df = pd.read_csv(path)
     return df
 
 
 def split_features_target(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, pd.Series]:
     """Return ``(X, y)`` from a dataframe and the name of its target column."""
-    #raise NotImplementedError(' (personne A)')
 
     if target not in df.columns:
         raise ValueError(f"Target column '{target}' not found in dataframe.")
@@ -88,7 +88,6 @@ def split_features_target(df: pd.DataFrame, target: str) -> Tuple[pd.DataFrame, 
 
 def describe_dataset(df: pd.DataFrame, target: str) -> pd.Series:
     """Quick summary: size, missing values, duplicates, class balance."""
-    #raise NotImplementedError(' (personne A)')
 
     if target not in df.columns:
         raise ValueError(f"Target column '{target}' not found in dataframe.")
@@ -112,9 +111,8 @@ def describe_dataset(df: pd.DataFrame, target: str) -> pd.Series:
 def inject_missing_values(X: pd.DataFrame, frac: float=0.05, seed: int=RANDOM_STATE) -> pd.DataFrame:
     """Randomly (MCAR) replace a fraction of the cells by NaN.
 
-Neither dataset contains missing values; this function lets us test and
-compare imputation strategies in a controlled way."""
-    #raise NotImplementedError(' (personne A)')
+        Neither dataset contains missing values; this function lets us test and
+        compare imputation strategies in a controlled way."""
 
     if not isinstance(X, pd.DataFrame):
         raise TypeError("Input X must be a pandas DataFrame.")
@@ -147,16 +145,14 @@ compare imputation strategies in a controlled way."""
 
 def build_pipeline(model: BaseEstimator, imputer_strategy: str='median', scale: bool=True, selector: Optional[str]=None, k: int=10, pca_components: Optional[float | int]=None, random_state: int=RANDOM_STATE) -> Pipeline:
     """Build ``imputer -> scaler -> [feature selection] -> [PCA] -> model``.
-
-Parameters
-----------
-imputer_strategy : 'mean' or 'median' (missing values are replaced by it).
-scale : center and reduce the data (StandardScaler).
-selector : None, 'anova', 'mutual_info', 'l1' (Lasso-like logistic
-    regression) or 'rf' (random-forest importances). Keeps the ``k`` best.
-pca_components : None (no PCA), an int (number of axes) or a float in
-    (0, 1) (fraction of explained variance to keep)."""
-    #raise NotImplementedError(' (personne A)')
+    Parameters
+    ----------
+    imputer_strategy : 'mean' or 'median' (missing values are replaced by it).
+    scale : center and reduce the data (StandardScaler).
+    selector : None, 'anova', 'mutual_info', 'l1' (Lasso-like logistic
+        regression) or 'rf' (random-forest importances). Keeps the ``k`` best.
+    pca_components : None (no PCA), an int (number of axes) or a float in
+        (0, 1) (fraction of explained variance to keep)."""
 
     if imputer_strategy not in ['mean', 'median']:
         raise ValueError("imputer_strategy must be 'mean' or 'median'.")
@@ -209,7 +205,6 @@ pca_components : None (no PCA), an int (number of axes) or a float in
 
 def split_data(X, y, test_size: float=0.2, seed: int=RANDOM_STATE):
     """Stratified train/test split (keeps the class proportions in both parts)."""
-    #raise NotImplementedError(' (personne A)')
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, stratify=y, random_state=seed)
 
@@ -217,7 +212,6 @@ def split_data(X, y, test_size: float=0.2, seed: int=RANDOM_STATE):
 
 def subsample(X, y, n: int, seed: int=RANDOM_STATE):
     """Stratified subsample of ``n`` rows (to speed up tuning on large data)."""
-    #raise NotImplementedError(' (personne A)')
 
     if not isinstance(n, (int, np.integer)) or isinstance(n, bool):
         raise TypeError("n must be an integer.")
@@ -243,32 +237,80 @@ def subsample(X, y, n: int, seed: int=RANDOM_STATE):
 # ============================================================================
 # B — Modèles & sélection de variables
 # ============================================================================
+
 def make_selector(method: str, k: int=10, random_state: int=RANDOM_STATE):
+    
     """Feature selector keeping the ``k`` best features."""
-    raise NotImplementedError('TODO (personne B)')
+    if method == 'anova':
+        return SelectKBest(score_func=f_classif, k=k)
+    elif method == 'mutual_info':
+        return SelectKBest(partial(mutual_info_classif, random_state=random_state), k=k)
+    elif method == 'l1':
+        return SelectFromModel(LogisticRegression(l1_ratio=1.0, solver='saga', random_state=random_state, C=1.0, max_iter=500), max_features=k, threshold=-np.inf)
+    elif method == 'rf':
+        return SelectFromModel(RandomForestClassifier(n_estimators=100, random_state=random_state), max_features=k, threshold=-np.inf)
+    else:
+        raise ValueError("method must be one of: 'anova', 'mutual_info', 'l1', 'rf'.")
 
 
 def get_models(class_weight: Optional[str]=None, include_svm: bool=True, random_state: int=RANDOM_STATE) -> Dict[str, BaseEstimator]:
     """Candidate classifiers. ``class_weight='balanced'`` handles imbalance."""
-    raise NotImplementedError('TODO (personne B)')
+    models = {
+        'lr': LogisticRegression(class_weight=class_weight, random_state=random_state, max_iter=500),
+        'rf': RandomForestClassifier(n_estimators=100, class_weight=class_weight, random_state=random_state),
+        'hgb': HistGradientBoostingClassifier(class_weight=class_weight, random_state=random_state),
+    }
+    if include_svm:
+        models['SVM-RBF'] = SVC(class_weight=class_weight, probability=False, random_state=random_state)
+    return models
 
 
 def tune_model(pipeline: Pipeline, param_grid: dict, X, y, scoring: str='f1', cv: int=3, n_samples: Optional[int]=None) -> GridSearchCV:
     """Grid search with cross-validation on the training data only.
 
-``n_samples`` limits the number of rows used for the search (large data);
-the best model is refit on all the rows given."""
-    raise NotImplementedError('TODO (personne B)')
+    ``n_samples`` limits the number of rows used for the search (large data);
+    Careful : with ``n_samples``, the best model is refit on all the rows given (not only the subsample)."""
+
+    if n_samples is not None:
+        X, y = subsample(X, y, min(n_samples, len(X)))
+
+    grid_search = GridSearchCV(pipeline, param_grid, scoring=scoring, cv=cv, n_jobs=-1)
+    grid_search.fit(X, y)
+
+    return grid_search
 
 
 def feature_scores(X: pd.DataFrame, y, method: str='anova') -> pd.Series:
     """Univariate score of each feature (higher = more related to the target)."""
-    raise NotImplementedError('TODO (personne B)')
+    X_imp = SimpleImputer(strategy='median').fit_transform(X)
+    if method == 'anova':
+        scores = f_classif(X_imp, y)[0]
+    elif method == 'mutual_info':
+        scores = mutual_info_classif(X_imp, y, random_state=RANDOM_STATE)
+    elif method == 'l1':
+        Z = StandardScaler().fit_transform(X_imp)
+        model = LogisticRegression(l1_ratio=1.0, solver='saga', random_state=RANDOM_STATE, C=1.0, max_iter=500).fit(Z, y)
+        scores = np.abs(model.coef_[0])
+    elif method == 'rf':
+        scores = RandomForestClassifier(n_estimators=100, random_state=RANDOM_STATE).fit(X_imp, y).feature_importances_
+    else:
+        raise ValueError("method must be one of: 'anova', 'mutual_info', 'l1', 'rf'.")
+
+    return pd.Series(scores, index=X.columns).sort_values(ascending=False)
 
 
 def selected_features(fitted_pipeline: Pipeline, feature_names: Iterable[str]) -> List[str]:
     """Names of the features kept by the 'selector' step of a fitted pipeline."""
-    raise NotImplementedError('TODO (personne B)')
+
+    selector = fitted_pipeline.named_steps.get('selector')
+    if selector is None or selector == 'passthrough':
+        return list(feature_names)
+
+    if hasattr(selector, 'get_support'):
+        mask = selector.get_support()
+        return [name for name, keep in zip(feature_names, mask) if keep]
+
+    raise ValueError("The pipeline does not have a valid 'selector' step.")
 
 
 
