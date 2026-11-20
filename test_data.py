@@ -4,7 +4,21 @@ import pytest
 
 import ml_workflow as ml
 
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LogisticRegression
+
+
+class FitCounterClassifier(ClassifierMixin, BaseEstimator):
+    def __init__(self, value=0):
+        self.value = value
+        self.fit_rows_seen = None
+
+    def fit(self, X, y):
+        self.fit_rows_seen = len(X)
+        return self
+
+    def predict(self, X):
+        return np.zeros(len(X), dtype=int)
 
 
 def test_load_spambase():
@@ -206,3 +220,19 @@ def test_tune_model_returns_best_params(data):
     pipe = ml.build_pipeline(LogisticRegression(max_iter=1000))
     gs = ml.tune_model(pipe, {"model__C": [0.1, 1.0]}, X, y, n_samples=10_000)
     assert gs.best_params_["model__C"] in (0.1, 1.0)
+
+
+def test_tune_model_refits_best_estimator_on_full_data(data):
+    X, y = data
+    pipe = ml.build_pipeline(FitCounterClassifier())
+    gs = ml.tune_model(
+        pipe,
+        {"model__value": [0, 1]},
+        X,
+        y,
+        scoring="accuracy",
+        cv=2,
+        n_samples=100,
+    )
+
+    assert gs.best_estimator_.named_steps["model"].fit_rows_seen == len(X)

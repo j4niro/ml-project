@@ -251,7 +251,17 @@ def make_selector(method: str, k: int=10, random_state: int=RANDOM_STATE):
     elif method == 'mutual_info':
         return SelectKBest(partial(mutual_info_classif, random_state=random_state), k=k)
     elif method == 'l1':
-        return SelectFromModel(LogisticRegression(l1_ratio=1.0, solver='saga', random_state=random_state, C=1.0, max_iter=500), max_features=k, threshold=-np.inf)
+        return SelectFromModel(
+            LogisticRegression(
+                l1_ratio=1.0,
+                solver='liblinear',
+                random_state=random_state,
+                C=1.0,
+                max_iter=500,
+            ),
+            max_features=k,
+            threshold=-np.inf,
+        )
     elif method == 'rf':
         return SelectFromModel(RandomForestClassifier(n_estimators=100, random_state=random_state), max_features=k, threshold=-np.inf)
     else:
@@ -270,17 +280,33 @@ def get_models(class_weight: Optional[str]=None, include_svm: bool=True, random_
     return models
 
 
-def tune_model(pipeline: Pipeline, param_grid: dict, X, y, scoring: str='f1', cv: int=3, n_samples: Optional[int]=None) -> GridSearchCV:
+def tune_model(pipeline: Pipeline, param_grid: dict, X, y, scoring: str='average_precision', cv: int=3, n_samples: Optional[int]=None) -> GridSearchCV:
     """Grid search with cross-validation on the training data only.
 
     ``n_samples`` limits the number of rows used for the search (large data);
-    Careful : with ``n_samples``, the best model is refit on all the rows given (not only the subsample)."""
+    The best hyperparameters are then refit on the complete X and y."""
+
+    X_full, y_full = X, y
+    if n_samples is not None:
+        X_search, y_search = subsample(X_full, y_full, min(n_samples, len(X_full)))
+    else:
+        X_search, y_search = X_full, y_full
+
+    grid_search = GridSearchCV(
+        pipeline,
+        param_grid,
+        scoring=scoring,
+        cv=cv,
+        n_jobs=-1,
+        refit=(n_samples is None),
+    )
+    grid_search.fit(X_search, y_search)
 
     if n_samples is not None:
-        X, y = subsample(X, y, min(n_samples, len(X)))
-
-    grid_search = GridSearchCV(pipeline, param_grid, scoring=scoring, cv=cv, n_jobs=-1)
-    grid_search.fit(X, y)
+        best_pipeline = clone(pipeline).set_params(**grid_search.best_params_)
+        best_pipeline.fit(X_full, y_full)
+        grid_search._best_estimator_ = best_pipeline
+        grid_search.best_estimator_ = best_pipeline
 
     return grid_search
 
@@ -294,7 +320,13 @@ def feature_scores(X: pd.DataFrame, y, method: str='anova') -> pd.Series:
         scores = mutual_info_classif(X_imp, y, random_state=RANDOM_STATE)
     elif method == 'l1':
         Z = StandardScaler().fit_transform(X_imp)
-        model = LogisticRegression(l1_ratio=1.0, solver='saga', random_state=RANDOM_STATE, C=1.0, max_iter=500).fit(Z, y)
+        model = LogisticRegression(
+            l1_ratio=1.0,
+            solver='liblinear',
+            random_state=RANDOM_STATE,
+            C=1.0,
+            max_iter=500,
+        ).fit(Z, y)
         scores = np.abs(model.coef_[0])
     elif method == 'rf':
         scores = RandomForestClassifier(n_estimators=100, random_state=RANDOM_STATE).fit(X_imp, y).feature_importances_
@@ -384,13 +416,84 @@ def cross_validate_models(models: Dict[str, BaseEstimator], X, y, cv: int = 5, s
     rows = {}
     for name, model in models.items():
         pipe = build_pipeline(clone(model), **pipeline_kwargs)
-        res = cross_validate(pipe, X, y, cv=skf, scoring=scoring)
+        res = cross_validate(pipe, X, y, cv=skf, scoring=scoring, n_jobs=-1)
         row = {}
         for s in scoring:
             vals = res[f"test_{s}"]
             row[f"{s}_mean"], row[f"{s}_std"] = vals.mean(), vals.std()
         row["fit_time_s"] = res["fit_time"].mean()
         rows[name] = row
+    return pd.DataFrame(rows).T
+
+
+def compare_feature_selectors(
+    model: BaseEstimator,
+    X,
+    y,
+    methods: Iterable[str] = ("anova", "mutual_info", "l1", "rf"),
+    k_values: Iterable[int] = (5, 10, 15),
+    cv: int = 5,
+    scoring: str = "average_precision",
+) -> pd.DataFrame:
+    """Compare feature-selection methods and k values with stratified CV."""
+    skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=RANDOM_STATE)
+    rows = {}
+
+    for method in methods:
+        for k in k_values:
+            if k < 1:
+                raise ValueError("k_values must contain positive integers.")
+            pipe = build_pipeline(clone(model), selector=method, k=k)
+            res = cross_validate(
+                pipe,
+                X,
+                y,
+                cv=skf,
+                scoring=(scoring,),
+                n_jobs=-1,
+            )
+            values = res[f"test_{scoring}"]
+            rows[(method, k)] = {
+                f"{scoring}_mean": values.mean(),
+                f"{scoring}_std": values.std(),
+                "fit_time_s": res["fit_time"].mean(),
+            }
+
+    table = pd.DataFrame(rows).T
+    table.index = pd.MultiIndex.from_tuples(table.index, names=["method", "k"])
+    return table
+
+
+def compare_pca(
+    model: BaseEstimator,
+    X,
+    y,
+    pca_components: Iterable[Optional[float | int]] = (None, 0.95),
+    cv: int = 5,
+    scoring: str = "average_precision",
+) -> pd.DataFrame:
+    """Compare pipelines with and without PCA using stratified CV."""
+    skf = StratifiedKFold(n_splits=cv, shuffle=True, random_state=RANDOM_STATE)
+    rows = {}
+
+    for components in pca_components:
+        pipe = build_pipeline(clone(model), pca_components=components)
+        res = cross_validate(
+            pipe,
+            X,
+            y,
+            cv=skf,
+            scoring=(scoring,),
+            n_jobs=-1,
+        )
+        values = res[f"test_{scoring}"]
+        label = "none" if components is None else str(components)
+        rows[label] = {
+            f"{scoring}_mean": values.mean(),
+            f"{scoring}_std": values.std(),
+            "fit_time_s": res["fit_time"].mean(),
+        }
+
     return pd.DataFrame(rows).T
 
 
