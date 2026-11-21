@@ -197,8 +197,8 @@ def test_get_models_keys_and_svm_option():
     without_svm = ml.get_models(include_svm=False)
     with_svm = ml.get_models(include_svm=True)
     assert {"lr", "rf", "hgb"} <= set(without_svm)
-    assert "SVM-RBF" not in without_svm
-    assert "SVM-RBF" in with_svm
+    assert "svm" not in without_svm
+    assert "svm" in with_svm
     assert all(hasattr(m, "fit") for m in with_svm.values())
 
 
