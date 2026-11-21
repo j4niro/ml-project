@@ -175,6 +175,13 @@ def test_selector_keeps_k_features(data, method):
     assert len(ml.selected_features(pipe, X.columns)) == 5
 
 
+def test_l1_logistic_is_really_sparse(data):
+    from sklearn.preprocessing import StandardScaler
+    X, y = data
+    est = ml._l1_logistic(C=0.05).fit(StandardScaler().fit_transform(X), y)
+    assert (est.coef_ == 0).any()
+
+
 def test_make_selector_unknown_method_raises():
     with pytest.raises(ValueError):
         ml.make_selector("unknown")

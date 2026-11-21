@@ -13,6 +13,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import sklearn 
 from sklearn.base import BaseEstimator, clone
 from sklearn.decomposition import PCA
 from sklearn.ensemble import  HistGradientBoostingClassifier, RandomForestClassifier
@@ -243,6 +244,15 @@ def subsample(X, y, n: int, seed: int=RANDOM_STATE):
 # B — Modèles & sélection de variables
 # ============================================================================
 
+def _l1_logistic(random_state: int = RANDOM_STATE, C: float = 0.1, max_iter: int = 500):
+    """Logistic regression with a TRUE L1 penalty, whatever the scikit-learn version."""
+    major, minor = (int(p) for p in sklearn.__version__.split(".")[:2])
+    if (major, minor) >= (1, 8):   # 'penalty' deprecated: L1 = l1_ratio=1
+        return LogisticRegression(l1_ratio=1.0, solver="liblinear", C=C,
+                                  max_iter=max_iter, random_state=random_state)
+    return LogisticRegression(penalty="l1", solver="liblinear", C=C,
+                              max_iter=max_iter, random_state=random_state)
+
 def make_selector(method: str, k: int=10, random_state: int=RANDOM_STATE):
     
     """Feature selector keeping the ``k`` best features."""
@@ -252,13 +262,7 @@ def make_selector(method: str, k: int=10, random_state: int=RANDOM_STATE):
         return SelectKBest(partial(mutual_info_classif, random_state=random_state), k=k)
     elif method == 'l1':
         return SelectFromModel(
-            LogisticRegression(
-                l1_ratio=1.0,
-                solver='liblinear',
-                random_state=random_state,
-                C=1.0,
-                max_iter=500,
-            ),
+            _l1_logistic(random_state=random_state),
             max_features=k,
             threshold=-np.inf,
         )
@@ -305,7 +309,6 @@ def tune_model(pipeline: Pipeline, param_grid: dict, X, y, scoring: str='average
     if n_samples is not None:
         best_pipeline = clone(pipeline).set_params(**grid_search.best_params_)
         best_pipeline.fit(X_full, y_full)
-        grid_search._best_estimator_ = best_pipeline
         grid_search.best_estimator_ = best_pipeline
 
     return grid_search
@@ -320,14 +323,7 @@ def feature_scores(X: pd.DataFrame, y, method: str='anova') -> pd.Series:
         scores = mutual_info_classif(X_imp, y, random_state=RANDOM_STATE)
     elif method == 'l1':
         Z = StandardScaler().fit_transform(X_imp)
-        model = LogisticRegression(
-            l1_ratio=1.0,
-            solver='liblinear',
-            random_state=RANDOM_STATE,
-            C=1.0,
-            max_iter=500,
-        ).fit(Z, y)
-        scores = np.abs(model.coef_[0])
+        scores = np.abs(_l1_logistic(random_state=RANDOM_STATE).fit(Z, y).coef_[0])
     elif method == 'rf':
         scores = RandomForestClassifier(n_estimators=100, random_state=RANDOM_STATE).fit(X_imp, y).feature_importances_
     else:
